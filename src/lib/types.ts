@@ -4,12 +4,13 @@ export type ProjectType = 'niche_eval' | 'client_seo' | 'custom';
 export type ProjectStatus = 'active' | 'paused' | 'completed' | 'archived';
 export type PipelineStage = 'capture' | 'score' | 'evaluate' | 'decide' | 'execute';
 export type StageStatus = 'not_started' | 'in_progress' | 'completed' | 'skipped';
-export type SignalSource = 'reddit' | 'g2' | 'manual' | 'web_clip' | 'import';
+export type SignalSource = 'reddit' | 'g2' | 'manual' | 'web_clip' | 'import' | 'mcp';
 export type SignalStatus = 'inbox' | 'scored' | 'promoted' | 'archived';
 export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'done';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type RiskTolerance = 'low' | 'medium' | 'high';
 export type DecisionType = 'commit' | 'pass' | 'revisit';
+export type ActivityType = 'research' | 'chat_external' | 'build_session' | 'note' | 'decision' | 'milestone' | 'signal_captured';
 
 export const PIPELINE_STAGES: PipelineStage[] = ['capture', 'score', 'evaluate', 'decide', 'execute'];
 
@@ -54,6 +55,7 @@ export interface Project {
   current_stage: PipelineStage;
   is_focused: boolean;
   color: string;
+  project_notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -83,10 +85,22 @@ export interface Signal {
   source_metadata: Record<string, unknown>;
   score: number | null;
   score_reasoning: string | null;
+  ai_assessment: AiAssessment | null;
   tags: string[];
   status: SignalStatus;
   created_at: string;
   updated_at: string;
+}
+
+export interface AiAssessment {
+  score: number;
+  verdict: string;
+  reasoning: string;
+  market_guess: string;
+  competition_note: string;
+  build_effort: string;
+  red_flags: string[];
+  green_flags: string[];
 }
 
 export interface Evaluation {
@@ -174,4 +188,29 @@ export interface TimeEntry {
   ended_at: string | null;
   duration_seconds: number | null;
   label: string | null;
+}
+
+export interface ActivityLogEntry {
+  id: string;
+  project_id: string | null;
+  user_id: string;
+  stage: PipelineStage | null;
+  activity_type: ActivityType;
+  title: string;
+  description: string | null;
+  external_url: string | null;
+  tool_used: string | null;
+  duration_minutes: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ApiKey {
+  id: string;
+  user_id: string;
+  name: string;
+  key_prefix: string;
+  last_used_at: string | null;
+  created_at: string;
+  revoked_at: string | null;
 }

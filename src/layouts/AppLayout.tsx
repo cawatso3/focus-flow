@@ -20,7 +20,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { NextActionBar } from '@/components/NextActionBar';
 import { ParkSessionDialog } from '@/components/ParkSessionDialog';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useProfile } from '@/hooks/use-queries';
 
 const navItems = [
   { title: 'Focus', url: '/app/focus', icon: Crosshair },
@@ -32,7 +33,6 @@ const navItems = [
 function AppSidebarContent() {
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
-  const location = useLocation();
   const [parkOpen, setParkOpen] = useState(false);
 
   return (
@@ -86,25 +86,32 @@ function AppSidebarContent() {
 }
 
 export default function AppLayout() {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
+  const { data: profile } = useProfile();
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isLoading && !isAuthenticated) {
       navigate('/login');
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isLoading, navigate]);
 
-  if (!isAuthenticated) return null;
+  // Check onboarding
+  useEffect(() => {
+    if (profile && !profile.onboarded) {
+      navigate('/onboarding');
+    }
+  }, [profile, navigate]);
 
-  const initials = user?.profile?.display_name?.slice(0, 2).toUpperCase() || '??';
+  if (isLoading || !isAuthenticated) return null;
+
+  const initials = (profile?.display_name || user?.email || '??').slice(0, 2).toUpperCase();
 
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
         <AppSidebarContent />
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Top bar */}
           <header className="h-14 flex items-center border-b border-border/50 px-4 gap-4 bg-background/80 backdrop-blur-md sticky top-0 z-10">
             <SidebarTrigger />
             <div className="flex-1 min-w-0">
@@ -122,7 +129,7 @@ export default function AppLayout() {
                 <DropdownMenuItem onClick={() => navigate('/app/settings')}>
                   <Settings className="mr-2 h-4 w-4" />Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { logout(); navigate('/'); }}>
+                <DropdownMenuItem onClick={async () => { await logout(); navigate('/'); }}>
                   <LogOut className="mr-2 h-4 w-4" />Log out
                 </DropdownMenuItem>
               </DropdownMenuContent>

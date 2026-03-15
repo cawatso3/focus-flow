@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Inbox, MoreHorizontal, Trash2, FolderOpen } from 'lucide-react';
+import { Plus, Inbox, MoreHorizontal, Trash2, FolderOpen, CheckSquare, Square, Archive, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,10 +8,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { getSignals, createSignal, deleteSignal, updateSignal, getProjects } from '@/lib/store';
+import { useSignals, useCreateSignal, useDeleteSignal, useUpdateSignal, useProjects } from '@/hooks/use-queries';
 import type { SignalSource } from '@/lib/types';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function InboxPage() {
   const [addOpen, setAddOpen] = useState(false);
@@ -19,25 +20,69 @@ export default function InboxPage() {
   const [newBody, setNewBody] = useState('');
   const [newSource, setNewSource] = useState<SignalSource>('manual');
   const [newProjectId, setNewProjectId] = useState<string>('');
-  const [, setRefresh] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const allSignals = getSignals();
-  const projects = getProjects();
+  const { data: allSignals = [], isLoading: signalsLoading } = useSignals();
+  const { data: projects = [] } = useProjects();
+  const createSignal = useCreateSignal();
+  const deleteSignal = useDeleteSignal();
+  const updateSignal = useUpdateSignal();
 
-  const handleAdd = () => {
-    if (!newTitle.trim()) return;
-    createSignal({
-      project_id: newProjectId || undefined,
-      source: newSource,
-      title: newTitle.trim(),
-      body: newBody || undefined,
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
     });
-    toast.success('Signal captured!');
-    setAddOpen(false);
-    setNewTitle('');
-    setNewBody('');
-    setNewProjectId('');
-    setRefresh(r => r + 1);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === allSignals.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(allSignals.map(s => s.id)));
+    }
+  };
+
+  const handleBulkAssign = (projectId: string) => {
+    selectedIds.forEach(id => {
+      updateSignal.mutate({ id, updates: { project_id: projectId } as never });
+    });
+    toast.success(`Assigned ${selectedIds.size} signals`);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkArchive = () => {
+    selectedIds.forEach(id => {
+      updateSignal.mutate({ id, updates: { status: 'archived' } as never });
+    });
+    toast.success(`Archived ${selectedIds.size} signals`);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = () => {
+    selectedIds.forEach(id => deleteSignal.mutate(id));
+    toast.success(`Deleted ${selectedIds.size} signals`);
+    setSelectedIds(new Set());
+  };
+
+  const handleAdd = async () => {
+    if (!newTitle.trim()) return;
+    try {
+      await createSignal.mutateAsync({
+        project_id: newProjectId && newProjectId !== 'none' ? newProjectId : undefined,
+        source: newSource,
+        title: newTitle.trim(),
+        body: newBody || undefined,
+      });
+      toast.success('Signal captured!');
+      setAddOpen(false);
+      setNewTitle('');
+      setNewBody('');
+      setNewProjectId('');
+    } catch {
+      toast.error('Failed to add signal');
+    }
   };
 
   return (
@@ -49,7 +94,35 @@ export default function InboxPage() {
         </Button>
       </div>
 
-      {allSignals.length === 0 ? (
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="mb-4 p-3 rounded-lg bg-muted flex items-center gap-3">
+          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline">Assign to Project</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {projects.map(p => (
+                <DropdownMenuItem key={p.id} onClick={() => handleBulkAssign(p.id)}>
+                  <FolderOpen className="mr-2 h-4 w-4" /> {p.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button size="sm" variant="outline" onClick={handleBulkArchive}>
+            <Archive className="mr-1 h-3.5 w-3.5" /> Archive
+          </Button>
+          <Button size="sm" variant="outline" className="text-destructive" onClick={handleBulkDelete}>
+            <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+        </div>
+      )}
+
+      {signalsLoading ? (
+        <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
+      ) : allSignals.length === 0 ? (
         <div className="card-surface p-8 text-center">
           <Inbox className="h-10 w-10 text-muted-foreground mx-auto mb-4" strokeWidth={1.5} />
           <h2 className="text-lg font-semibold text-foreground mb-2">Inbox is empty</h2>
@@ -60,10 +133,21 @@ export default function InboxPage() {
         </div>
       ) : (
         <div className="space-y-2">
+          {/* Select all */}
+          <div className="flex items-center gap-2 px-4 py-1">
+            <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground">
+              {selectedIds.size === allSignals.length ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+            </button>
+            <span className="text-xs text-muted-foreground">Select all</span>
+          </div>
           {allSignals.map(signal => {
             const project = projects.find(p => p.id === signal.project_id);
+            const isSelected = selectedIds.has(signal.id);
             return (
-              <div key={signal.id} className="card-surface p-4 flex items-start gap-3">
+              <div key={signal.id} className={`card-surface p-4 flex items-start gap-3 ${isSelected ? 'ring-1 ring-foreground/20' : ''}`}>
+                <button onClick={() => toggleSelect(signal.id)} className="mt-1 text-muted-foreground hover:text-foreground">
+                  {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h4 className="text-sm font-medium text-foreground truncate">{signal.title}</h4>
@@ -91,11 +175,11 @@ export default function InboxPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     {projects.map(p => (
-                      <DropdownMenuItem key={p.id} onClick={() => { updateSignal(signal.id, { project_id: p.id } as Parameters<typeof updateSignal>[1]); setRefresh(r => r + 1); toast.success(`Assigned to ${p.name}`); }}>
+                      <DropdownMenuItem key={p.id} onClick={() => { updateSignal.mutate({ id: signal.id, updates: { project_id: p.id } as never }); toast.success(`Assigned to ${p.name}`); }}>
                         <FolderOpen className="mr-2 h-4 w-4" /> Assign to {p.name}
                       </DropdownMenuItem>
                     ))}
-                    <DropdownMenuItem className="text-destructive" onClick={() => { deleteSignal(signal.id); setRefresh(r => r + 1); toast.success('Signal deleted'); }}>
+                    <DropdownMenuItem className="text-destructive" onClick={() => { deleteSignal.mutate(signal.id); toast.success('Signal deleted'); }}>
                       <Trash2 className="mr-2 h-4 w-4" /> Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -135,7 +219,9 @@ export default function InboxPage() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleAdd} disabled={!newTitle.trim()}>Save</Button>
+            <Button onClick={handleAdd} disabled={!newTitle.trim() || createSignal.isPending}>
+              {createSignal.isPending ? 'Saving...' : 'Save'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

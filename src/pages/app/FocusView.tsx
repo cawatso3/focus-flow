@@ -2,18 +2,20 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Plus, Clock, Crosshair } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getFocusedProject, getActiveParking, getStageProgress, resumeParking } from '@/lib/store';
+import { useFocusedProject, useActiveParking, useStageProgress, useResumeParking } from '@/hooks/use-queries';
 import { STAGE_CONFIG } from '@/lib/types';
 import { PipelineStepper } from '@/components/PipelineStepper';
 import type { PipelineStage, StageStatus } from '@/lib/types';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function FocusView() {
   const navigate = useNavigate();
-  const project = getFocusedProject();
-  const parkings = getActiveParking();
+  const { data: project, isLoading: projectLoading } = useFocusedProject();
+  const { data: parkings = [], isLoading: parkingLoading } = useActiveParking();
+  const { data: stageProgressList = [] } = useStageProgress(project?.id);
+  const resumeParking = useResumeParking();
 
-  // Build next action text based on stage
   const getNextAction = () => {
     if (!project) return null;
     const stage = project.current_stage;
@@ -27,18 +29,26 @@ export default function FocusView() {
     return actions[stage];
   };
 
-  const stageStatuses = project
-    ? getStageProgress(project.id).reduce((acc, sp) => {
-        acc[sp.stage] = sp.status;
-        return acc;
-      }, {} as Record<PipelineStage, StageStatus>)
-    : ({} as Record<PipelineStage, StageStatus>);
+  const stageStatuses = stageProgressList.reduce((acc, sp) => {
+    acc[sp.stage] = sp.status;
+    return acc;
+  }, {} as Record<PipelineStage, StageStatus>);
 
   const stageProgress = project
-    ? getStageProgress(project.id).find(sp => sp.stage === project.current_stage)
+    ? stageProgressList.find(sp => sp.stage === project.current_stage)
     : null;
 
   const nextAction = getNextAction();
+
+  if (projectLoading || parkingLoading) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-16 w-full" />
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -47,7 +57,6 @@ export default function FocusView() {
       transition={{ duration: 0.2 }}
       className="max-w-2xl mx-auto"
     >
-      {/* Parked session resume */}
       {parkings.length > 0 && (
         <div className="mb-6">
           {parkings.map(parking => (
@@ -67,7 +76,7 @@ export default function FocusView() {
                   <Button
                     size="sm"
                     onClick={() => {
-                      resumeParking(parking.id);
+                      resumeParking.mutate(parking.id);
                       if (parking.page_route) navigate(parking.page_route);
                       toast.info('Session resumed');
                     }}
@@ -75,7 +84,7 @@ export default function FocusView() {
                   >
                     Resume <ArrowRight className="h-3 w-3" />
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => { resumeParking(parking.id); }}>
+                  <Button size="sm" variant="ghost" onClick={() => resumeParking.mutate(parking.id)}>
                     Dismiss
                   </Button>
                 </div>
@@ -87,7 +96,6 @@ export default function FocusView() {
 
       {project ? (
         <>
-          {/* Project header */}
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-4">
               <h1 className="text-xl font-semibold text-foreground">{project.name}</h1>
@@ -98,7 +106,6 @@ export default function FocusView() {
             <PipelineStepper projectId={project.id} currentStage={project.current_stage} stageStatuses={stageStatuses} />
           </div>
 
-          {/* Next action card */}
           {nextAction && (
             <div className={`card-surface p-6 border-l-4 ${STAGE_CONFIG[project.current_stage].borderClass}`}>
               <p className={`text-label ${STAGE_CONFIG[project.current_stage].colorClass} mb-2`}>
@@ -121,7 +128,6 @@ export default function FocusView() {
             </div>
           )}
 
-          {/* Session stats */}
           {stageProgress && stageProgress.time_budget_seconds && (
             <div className="mt-6 p-4 rounded-lg bg-muted/50">
               <div className="flex items-center justify-between text-sm">
@@ -141,7 +147,6 @@ export default function FocusView() {
             </div>
           )}
 
-          {/* Switch project link */}
           <div className="mt-6 text-center">
             <Button variant="link" size="sm" className="text-muted-foreground" onClick={() => navigate('/app/projects')}>
               Switch project
@@ -149,7 +154,6 @@ export default function FocusView() {
           </div>
         </>
       ) : (
-        /* No project state */
         <div className="card-surface p-8 text-center">
           <Crosshair className="h-10 w-10 text-muted-foreground mx-auto mb-4" strokeWidth={1.5} />
           <h2 className="text-lg font-semibold text-foreground mb-2">No active project</h2>

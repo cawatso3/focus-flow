@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { useAuth } from '@/contexts/AuthContext';
-import { upsertConstraintProfile } from '@/lib/store';
+import { useUpsertConstraintProfile, useUpdateProfile } from '@/hooks/use-queries';
 import { toast } from 'sonner';
 import { Check, ChevronRight } from 'lucide-react';
 
@@ -52,8 +52,10 @@ export default function OnboardingPage() {
   const [timeBudget, setTimeBudget] = useState(15);
   const [riskTolerance, setRiskTolerance] = useState<'low' | 'medium' | 'high'>('medium');
   const [revenueModels, setRevenueModels] = useState<string[]>([]);
-  const { updateProfile } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const upsertConstraintProfile = useUpsertConstraintProfile();
+  const updateProfile = useUpdateProfile();
 
   const addAsset = () => {
     if (assetInput.trim() && !existingAssets.includes(assetInput.trim())) {
@@ -62,18 +64,22 @@ export default function OnboardingPage() {
     }
   };
 
-  const handleComplete = () => {
-    upsertConstraintProfile({
-      tech_stack: techStack,
-      builder_tools: builderTools,
-      existing_assets: existingAssets,
-      time_budget_hours_per_week: timeBudget,
-      risk_tolerance: riskTolerance,
-      target_revenue_model: revenueModels,
-    });
-    updateProfile({ onboarded: true });
-    toast.success('Builder profile saved!');
-    navigate('/app/focus');
+  const handleComplete = async () => {
+    try {
+      await upsertConstraintProfile.mutateAsync({
+        tech_stack: techStack,
+        builder_tools: builderTools,
+        existing_assets: existingAssets,
+        time_budget_hours_per_week: timeBudget,
+        risk_tolerance: riskTolerance,
+        target_revenue_model: revenueModels,
+      });
+      await updateProfile.mutateAsync({ onboarded: true });
+      toast.success('Builder profile saved!');
+      navigate('/app/focus');
+    } catch {
+      toast.error('Failed to save profile');
+    }
   };
 
   const steps = [
@@ -95,7 +101,6 @@ export default function OnboardingPage() {
           <p className="mt-1 text-sm text-muted-foreground">Set up your builder profile</p>
         </div>
 
-        {/* Stepper */}
         <div className="flex items-center justify-center gap-2 mb-8">
           {steps.map((_, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -211,8 +216,8 @@ export default function OnboardingPage() {
                   Continue <ChevronRight className="h-4 w-4" />
                 </Button>
               ) : (
-                <Button onClick={handleComplete} className="gap-1">
-                  Complete Setup <Check className="h-4 w-4" />
+                <Button onClick={handleComplete} disabled={upsertConstraintProfile.isPending} className="gap-1">
+                  {upsertConstraintProfile.isPending ? 'Saving...' : 'Complete Setup'} <Check className="h-4 w-4" />
                 </Button>
               )}
             </div>

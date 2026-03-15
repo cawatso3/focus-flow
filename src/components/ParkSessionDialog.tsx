@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { getFocusedProject, parkSession } from '@/lib/store';
+import { useFocusedProject, useParkSession } from '@/hooks/use-queries';
 import { toast } from 'sonner';
 
 interface ParkSessionDialogProps {
@@ -16,9 +16,10 @@ export function ParkSessionDialog({ open, onOpenChange }: ParkSessionDialogProps
   const [notes, setNotes] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
-  const project = getFocusedProject();
+  const { data: project } = useFocusedProject();
+  const parkSession = useParkSession();
 
-  const handlePark = () => {
+  const handlePark = async () => {
     if (!project) {
       toast.error('No active project to park');
       onOpenChange(false);
@@ -27,18 +28,22 @@ export function ParkSessionDialog({ open, onOpenChange }: ParkSessionDialogProps
 
     const breadcrumb = `${project.name} → ${project.current_stage.charAt(0).toUpperCase() + project.current_stage.slice(1)} stage`;
 
-    parkSession({
-      project_id: project.id,
-      stage: project.current_stage,
-      page_route: location.pathname,
-      breadcrumb,
-      notes: notes || undefined,
-    });
+    try {
+      await parkSession.mutateAsync({
+        project_id: project.id,
+        stage: project.current_stage,
+        page_route: location.pathname,
+        breadcrumb,
+        notes: notes || undefined,
+      });
 
-    toast.success('Session parked. See you when you\'re back.');
-    setNotes('');
-    onOpenChange(false);
-    navigate('/app/focus');
+      toast.success('Session parked. See you when you\'re back.');
+      setNotes('');
+      onOpenChange(false);
+      navigate('/app/focus');
+    } catch {
+      toast.error('Failed to park session');
+    }
   };
 
   return (
@@ -74,7 +79,9 @@ export function ParkSessionDialog({ open, onOpenChange }: ParkSessionDialogProps
         )}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handlePark} disabled={!project}>Park & Close</Button>
+          <Button onClick={handlePark} disabled={!project || parkSession.isPending}>
+            {parkSession.isPending ? 'Parking...' : 'Park & Close'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

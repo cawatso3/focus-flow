@@ -22,8 +22,9 @@ export default function LoginPage() {
       await login(email, password);
       toast.success('Welcome back!');
       navigate('/app/focus');
-    } catch {
-      toast.error('Login failed');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Login failed';
+      toast.error(message);
     } finally {
       setLoading(false);
     }

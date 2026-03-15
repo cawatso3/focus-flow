@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { getEvaluations, updateEvaluation, getProject, advanceStage } from '@/lib/store';
+import { useEvaluations, useUpdateEvaluation, useProject, useAdvanceStage } from '@/hooks/use-queries';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface ScoreFieldProps {
   label: string;
@@ -44,42 +45,51 @@ function ScoreField({ label, question, textValue, scoreValue, lowLabel, highLabe
 export default function EvaluateStage() {
   const { id } = useParams<{ id: string }>();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [, setRefresh] = useState(0);
+
+  const { data: project } = useProject(id);
+  const { data: evals = [], isLoading } = useEvaluations(id);
+  const updateEvaluation = useUpdateEvaluation();
+  const advanceStage = useAdvanceStage();
 
   if (!id) return null;
 
-  const project = getProject(id);
-  const evals = getEvaluations(id).sort((a, b) => (b.overall_score ?? 0) - (a.overall_score ?? 0));
-  const complete = evals.filter(e => e.status === 'complete').length;
+  const sortedEvals = [...evals].sort((a, b) => (b.overall_score ?? 0) - (a.overall_score ?? 0));
+  const complete = sortedEvals.filter(e => e.status === 'complete').length;
 
   const save = (evalId: string, updates: Record<string, unknown>) => {
-    updateEvaluation(evalId, updates as Parameters<typeof updateEvaluation>[1]);
-    setRefresh(r => r + 1);
+    updateEvaluation.mutate({ id: evalId, updates: updates as never });
   };
 
   const scoreColor = (score: number | null) =>
     score === null ? 'text-muted-foreground' : score >= 3.5 ? 'stage-execute' : score >= 2 ? 'stage-decide' : 'text-destructive';
 
-  const handleAdvance = () => {
+  const handleAdvance = async () => {
     if (complete < 1) { toast.error('Complete at least 1 evaluation.'); return; }
-    advanceStage(id);
-    toast.success('Moving to Decide stage!');
-    setRefresh(r => r + 1);
+    try {
+      await advanceStage.mutateAsync({ projectId: id, currentStage: 'evaluate' });
+      toast.success('Moving to Decide stage!');
+    } catch {
+      toast.error('Failed to advance stage');
+    }
   };
+
+  if (isLoading) {
+    return <div className="space-y-3">{[1, 2].map(i => <Skeleton key={i} className="h-20 w-full" />)}</div>;
+  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
       <div className="mb-4 p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground">
-        {complete} of {evals.length} evaluations complete.
+        {complete} of {sortedEvals.length} evaluations complete.
       </div>
 
-      {evals.length === 0 ? (
+      {sortedEvals.length === 0 ? (
         <div className="card-surface p-8 text-center">
           <p className="text-sm text-muted-foreground">No evaluations yet. Promote signals from the Score stage first.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {evals.map(ev => {
+          {sortedEvals.map(ev => {
             const expanded = expandedId === ev.id;
             const filledCount = [ev.market_size_score, ev.pain_severity_score, ev.competition_score, ev.tech_fit_score, ev.build_effort_score, ev.revenue_score].filter(s => s !== null && s > 0).length;
 
@@ -137,7 +147,7 @@ export default function EvaluateStage() {
 
       {complete >= 1 && project?.current_stage === 'evaluate' && (
         <div className="mt-6 text-center">
-          <Button onClick={handleAdvance} className="gap-1">
+          <Button onClick={handleAdvance} disabled={advanceStage.isPending} className="gap-1">
             Move to Decide <span className="text-xs opacity-70">→</span>
           </Button>
         </div>

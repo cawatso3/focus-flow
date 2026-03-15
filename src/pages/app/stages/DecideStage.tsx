@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { getEvaluations, createDecision, advanceStage, getProject } from '@/lib/store';
+import { useEvaluations, useCreateDecision, useAdvanceStage, useProject } from '@/hooks/use-queries';
 import type { DecisionType } from '@/lib/types';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function DecideStage() {
   const { id } = useParams<{ id: string }>();
@@ -17,12 +17,15 @@ export default function DecideStage() {
   const [decision, setDecision] = useState<DecisionType | ''>('');
   const [reasoning, setReasoning] = useState('');
   const [confidence, setConfidence] = useState(3);
-  const [, setRefresh] = useState(0);
+
+  const { data: project } = useProject(id);
+  const { data: allEvals = [], isLoading } = useEvaluations(id);
+  const createDecision = useCreateDecision();
+  const advanceStage = useAdvanceStage();
 
   if (!id) return null;
 
-  const project = getProject(id);
-  const evals = getEvaluations(id).filter(e => e.status === 'complete').sort((a, b) => (b.overall_score ?? 0) - (a.overall_score ?? 0));
+  const evals = allEvals.filter(e => e.status === 'complete').sort((a, b) => (b.overall_score ?? 0) - (a.overall_score ?? 0));
 
   if (!selectedEvalId && evals.length > 0) {
     setSelectedEvalId(evals[0].id);
@@ -31,27 +34,34 @@ export default function DecideStage() {
   const scoreColor = (score: number | null) =>
     score === null ? 'text-muted-foreground' : score >= 3.5 ? 'stage-execute' : score >= 2 ? 'stage-decide' : 'text-destructive';
 
-  const handleDecide = () => {
+  const handleDecide = async () => {
     if (!decision) { toast.error('Select a decision.'); return; }
     if (decision === 'commit' && !reasoning) { toast.error('Add reasoning for your commitment.'); return; }
 
-    createDecision({
-      project_id: id,
-      chosen_evaluation_id: decision === 'commit' ? selectedEvalId : undefined,
-      decision: decision as DecisionType,
-      reasoning,
-      confidence,
-    });
+    try {
+      await createDecision.mutateAsync({
+        project_id: id,
+        chosen_evaluation_id: decision === 'commit' ? selectedEvalId : undefined,
+        decision: decision as DecisionType,
+        reasoning,
+        confidence,
+      });
 
-    if (decision === 'commit') {
-      advanceStage(id);
-      toast.success('Committed! Moving to Execute stage.');
-      navigate(`/app/project/${id}/execute`);
-    } else {
-      toast.success('Decision recorded.');
+      if (decision === 'commit') {
+        await advanceStage.mutateAsync({ projectId: id, currentStage: 'decide' });
+        toast.success('Committed! Moving to Execute stage.');
+        navigate(`/app/project/${id}/execute`);
+      } else {
+        toast.success('Decision recorded.');
+      }
+    } catch {
+      toast.error('Failed to save decision');
     }
-    setRefresh(r => r + 1);
   };
+
+  if (isLoading) {
+    return <div className="space-y-4"><Skeleton className="h-40 w-full" /><Skeleton className="h-60 w-full" /></div>;
+  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
@@ -61,7 +71,6 @@ export default function DecideStage() {
         </div>
       ) : (
         <>
-          {/* Comparison cards */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
             {evals.map(ev => (
               <div
@@ -97,7 +106,6 @@ export default function DecideStage() {
             ))}
           </div>
 
-          {/* Decision form */}
           <div className="card-surface p-6 max-w-lg mx-auto">
             <h3 className="text-base font-semibold text-foreground mb-4">Make your decision</h3>
 
@@ -133,8 +141,9 @@ export default function DecideStage() {
                 <Slider value={[confidence]} onValueChange={([v]) => setConfidence(v)} min={1} max={5} step={1} />
               </div>
 
-              <Button onClick={handleDecide} disabled={!decision} className="w-full">
-                {decision === 'commit' ? 'Commit and Build →' : decision === 'pass' ? 'Pass on All' : decision === 'revisit' ? 'Revisit Later' : 'Select a decision'}
+              <Button onClick={handleDecide} disabled={!decision || createDecision.isPending} className="w-full">
+                {createDecision.isPending ? 'Saving...' :
+                  decision === 'commit' ? 'Commit and Build →' : decision === 'pass' ? 'Pass on All' : decision === 'revisit' ? 'Revisit Later' : 'Select a decision'}
               </Button>
             </div>
           </div>
