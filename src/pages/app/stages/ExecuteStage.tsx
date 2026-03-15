@@ -37,7 +37,12 @@ export default function ExecuteStage() {
   const [newDue, setNewDue] = useState('');
   const [, setRefresh] = useState(0);
 
-  if (!id) return null;
+  const onDragEnd = useCallback((result: DropResult) => {
+    if (!result.destination) return;
+    const newStatus = result.destination.droppableId as TaskStatus;
+    updateTask(result.draggableId, { status: newStatus });
+    setRefresh(r => r + 1);
+  }, []);
 
   const tasks = getTasks(id);
   const done = tasks.filter(t => t.status === 'done').length;
