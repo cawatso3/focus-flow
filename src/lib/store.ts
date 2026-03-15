@@ -2,7 +2,6 @@
 // This provides mock data management until Supabase is connected
 // All data is stored in-memory and will be replaced with Supabase queries
 
-import { v4 } from 'crypto';
 import type {
   Profile, ConstraintProfile, Project, StageProgress, Signal,
   Evaluation, Decision, Task, ContextParking, TimeEntry,
