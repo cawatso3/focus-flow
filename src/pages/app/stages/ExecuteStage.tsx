@@ -44,8 +44,9 @@ export default function ExecuteStage() {
     setRefresh(r => r + 1);
   }, []);
 
+  if (!id) return null;
+
   const tasks = getTasks(id);
-  const done = tasks.filter(t => t.status === 'done').length;
 
   const handleAdd = () => {
     if (!newTitle.trim()) return;
