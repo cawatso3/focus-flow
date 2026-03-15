@@ -46,10 +46,11 @@ export default function ExecuteStage() {
 
   if (!id) return null;
 
-  const tasks = getTasks(id);
+  const tasks = id ? getTasks(id) : [];
+  const done = tasks.filter(t => t.status === 'done').length;
 
   const handleAdd = () => {
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim() || !id) return;
     createTask({
       project_id: id,
       title: newTitle.trim(),
@@ -68,12 +69,7 @@ export default function ExecuteStage() {
     setRefresh(r => r + 1);
   };
 
-  const onDragEnd = useCallback((result: DropResult) => {
-    if (!result.destination) return;
-    const newStatus = result.destination.droppableId as TaskStatus;
-    updateTask(result.draggableId, { status: newStatus });
-    setRefresh(r => r + 1);
-  }, []);
+  if (!id) return null;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
