@@ -1,18 +1,29 @@
-import { useParams, Outlet, useNavigate } from 'react-router-dom';
+import { useParams, Outlet } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { getProject, getStageProgress } from '@/lib/store';
+import { useProject, useStageProgress } from '@/hooks/use-queries';
 import { PipelineStepper } from '@/components/PipelineStepper';
 import type { PipelineStage, StageStatus } from '@/lib/types';
 import { STAGE_CONFIG } from '@/lib/types';
 import { StageTimer } from '@/components/StageTimer';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { data: project, isLoading } = useProject(id);
+  const { data: progressList = [] } = useStageProgress(id);
 
   if (!id) return null;
 
-  const project = getProject(id);
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
   if (!project) {
     return (
       <div className="text-center py-12">
@@ -21,16 +32,15 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const stageStatuses = getStageProgress(id).reduce((acc, sp) => {
+  const stageStatuses = progressList.reduce((acc, sp) => {
     acc[sp.stage] = sp.status;
     return acc;
   }, {} as Record<PipelineStage, StageStatus>);
 
-  const currentProgress = getStageProgress(id).find(sp => sp.stage === project.current_stage);
+  const currentProgress = progressList.find(sp => sp.stage === project.current_stage);
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-      {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -50,7 +60,6 @@ export default function ProjectDetailPage() {
         <PipelineStepper projectId={id} currentStage={project.current_stage} stageStatuses={stageStatuses} />
       </div>
 
-      {/* Stage content */}
       <Outlet />
     </motion.div>
   );

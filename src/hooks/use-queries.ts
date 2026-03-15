@@ -23,7 +23,7 @@ export function useProjects(status?: string) {
     queryKey: ['projects', status],
     queryFn: async () => {
       let q = supabase.from('projects').select('*').order('updated_at', { ascending: false });
-      if (status && status !== 'all') q = q.eq('status', status);
+      if (status && status !== 'all') q = q.eq('status', status as 'active' | 'paused' | 'completed' | 'archived');
       const { data, error } = await q;
       if (error) throw error;
       return data as unknown as Project[];

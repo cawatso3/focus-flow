@@ -1,12 +1,12 @@
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Crosshair } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getFocusedProject } from '@/lib/store';
+import { useFocusedProject } from '@/hooks/use-queries';
 import { STAGE_CONFIG } from '@/lib/types';
 
 export function NextActionBar() {
   const navigate = useNavigate();
-  const project = getFocusedProject();
+  const { data: project } = useFocusedProject();
 
   if (!project) {
     return (

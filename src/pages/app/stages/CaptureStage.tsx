@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Inbox, Pencil, Link2, Upload, MoreHorizontal, Trash2, Archive } from 'lucide-react';
+import { Plus, Inbox, Pencil, Link2, Upload, MoreHorizontal, Trash2, Archive, Radar, Info, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,10 +9,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { getSignals, createSignal, updateSignal, deleteSignal, getProject, advanceStage } from '@/lib/store';
+import { useSignals, useCreateSignal, useUpdateSignal, useDeleteSignal, useProject, useAdvanceStage } from '@/hooks/use-queries';
 import type { SignalSource, SignalStatus } from '@/lib/types';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const SOURCE_ICONS: Record<SignalSource, React.ReactNode> = {
   reddit: <span className="text-xs">📡</span>,
@@ -20,6 +21,16 @@ const SOURCE_ICONS: Record<SignalSource, React.ReactNode> = {
   manual: <Pencil className="h-3.5 w-3.5" />,
   web_clip: <Link2 className="h-3.5 w-3.5" />,
   import: <Upload className="h-3.5 w-3.5" />,
+  mcp: <Radar className="h-3.5 w-3.5" />,
+};
+
+const SOURCE_BADGE_STYLES: Record<SignalSource, string> = {
+  reddit: 'bg-orange-100 text-orange-700',
+  g2: 'bg-yellow-100 text-yellow-700',
+  manual: 'bg-muted text-muted-foreground',
+  web_clip: 'bg-blue-100 text-blue-700',
+  import: 'bg-muted text-muted-foreground',
+  mcp: 'bg-stage-evaluate-subtle stage-evaluate',
 };
 
 const STATUS_STYLES: Record<SignalStatus, string> = {
@@ -38,45 +49,74 @@ export default function CaptureStage() {
   const [newUrl, setNewUrl] = useState('');
   const [newSource, setNewSource] = useState<SignalSource>('manual');
   const [newTags, setNewTags] = useState('');
-  const [, setRefresh] = useState(0);
+  const [infoDismissed, setInfoDismissed] = useState(() => localStorage.getItem('nc_capture_info_dismissed') === 'true');
+
+  const { data: project } = useProject(id);
+  const { data: allSignals = [], isLoading } = useSignals(id);
+  const createSignal = useCreateSignal();
+  const updateSignal = useUpdateSignal();
+  const deleteSignal = useDeleteSignal();
+  const advanceStage = useAdvanceStage();
 
   if (!id) return null;
 
-  const project = getProject(id);
-  const allSignals = getSignals(id);
   const filteredSignals = filter === 'all' ? allSignals : allSignals.filter(s => s.status === filter);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!newTitle.trim()) return;
-    createSignal({
-      project_id: id,
-      source: newSource,
-      title: newTitle.trim(),
-      body: newBody || undefined,
-      source_url: newUrl || undefined,
-      tags: newTags ? newTags.split(',').map(t => t.trim()).filter(Boolean) : [],
-    });
-    toast.success('Signal captured!');
-    setAddOpen(false);
-    setNewTitle('');
-    setNewBody('');
-    setNewUrl('');
-    setNewTags('');
-    setRefresh(r => r + 1);
+    try {
+      await createSignal.mutateAsync({
+        project_id: id,
+        source: newSource,
+        title: newTitle.trim(),
+        body: newBody || undefined,
+        source_url: newUrl || undefined,
+        tags: newTags ? newTags.split(',').map(t => t.trim()).filter(Boolean) : [],
+      });
+      toast.success('Signal captured!');
+      setAddOpen(false);
+      setNewTitle('');
+      setNewBody('');
+      setNewUrl('');
+      setNewTags('');
+    } catch {
+      toast.error('Failed to add signal');
+    }
   };
 
-  const handleAdvance = () => {
+  const handleAdvance = async () => {
     if (allSignals.length < 5) {
       toast.error('Capture at least 5 signals before moving on.');
       return;
     }
-    advanceStage(id);
-    toast.success('Moving to Score stage!');
-    setRefresh(r => r + 1);
+    try {
+      await advanceStage.mutateAsync({ projectId: id, currentStage: 'capture' });
+      toast.success('Moving to Score stage!');
+    } catch {
+      toast.error('Failed to advance stage');
+    }
+  };
+
+  const dismissInfo = () => {
+    setInfoDismissed(true);
+    localStorage.setItem('nc_capture_info_dismissed', 'true');
   };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
+      {/* Info card */}
+      {!infoDismissed && (
+        <div className="mb-4 p-3 rounded-lg bg-stage-capture-subtle border border-stage-capture/20 flex items-start gap-3">
+          <Info className="h-4 w-4 stage-capture shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-xs text-foreground">Signals flow in from your AI tools via the NicheCommand API. Set up your API key in Settings → API Keys, then connect your MCP server in Windsurf.</p>
+          </div>
+          <button onClick={dismissInfo} className="text-muted-foreground hover:text-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-4">
         <div className="flex gap-2">
           {(['all', 'inbox', 'scored', 'promoted', 'archived'] as const).map(f => (
@@ -96,11 +136,15 @@ export default function CaptureStage() {
         </Button>
       </div>
 
-      {filteredSignals.length === 0 ? (
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)}
+        </div>
+      ) : filteredSignals.length === 0 ? (
         <div className="card-surface p-8 text-center">
           <Inbox className="h-10 w-10 text-muted-foreground mx-auto mb-4" strokeWidth={1.5} />
-          <h3 className="text-base font-semibold text-foreground mb-2">No signals captured yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">Add your first pain point, idea, or problem.</p>
+          <h3 className="text-base font-semibold text-foreground mb-2">No signals yet</h3>
+          <p className="text-sm text-muted-foreground mb-4">Start a research session in Claude or Windsurf — signals will appear here automatically. Or add one manually.</p>
           <Button onClick={() => setAddOpen(true)} className="gap-1">
             <Plus className="h-4 w-4" /> Add Signal
           </Button>
@@ -116,6 +160,9 @@ export default function CaptureStage() {
                 <div className="flex items-start justify-between gap-2">
                   <h4 className="text-sm font-medium text-foreground truncate">{signal.title}</h4>
                   <div className="flex items-center gap-2 shrink-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${SOURCE_BADGE_STYLES[signal.source]}`}>
+                      {signal.source}
+                    </span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_STYLES[signal.status]}`}>
                       {signal.status}
                     </span>
@@ -135,10 +182,10 @@ export default function CaptureStage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { updateSignal(signal.id, { status: 'archived' }); setRefresh(r => r + 1); }}>
+                        <DropdownMenuItem onClick={() => updateSignal.mutate({ id: signal.id, updates: { status: 'archived' } })}>
                           <Archive className="mr-2 h-4 w-4" /> Archive
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onClick={() => { deleteSignal(signal.id); setRefresh(r => r + 1); toast.success('Signal deleted'); }}>
+                        <DropdownMenuItem className="text-destructive" onClick={() => { deleteSignal.mutate(signal.id); toast.success('Signal deleted'); }}>
                           <Trash2 className="mr-2 h-4 w-4" /> Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -160,17 +207,15 @@ export default function CaptureStage() {
         </div>
       )}
 
-      {/* Advance button */}
       {allSignals.length >= 5 && project?.current_stage === 'capture' && (
         <div className="mt-6 text-center">
-          <Button onClick={handleAdvance} className="gap-1">
+          <Button onClick={handleAdvance} disabled={advanceStage.isPending} className="gap-1">
             Move to Score <span className="text-xs opacity-70">→</span>
           </Button>
           <p className="text-xs text-muted-foreground mt-2">{allSignals.length} signals captured</p>
         </div>
       )}
 
-      {/* Add Signal Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -185,6 +230,7 @@ export default function CaptureStage() {
                   <SelectItem value="manual">Manual</SelectItem>
                   <SelectItem value="web_clip">Web Clip</SelectItem>
                   <SelectItem value="import">Import</SelectItem>
+                  <SelectItem value="mcp">MCP</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -207,7 +253,9 @@ export default function CaptureStage() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleAdd} disabled={!newTitle.trim()}>Save to Inbox</Button>
+            <Button onClick={handleAdd} disabled={!newTitle.trim() || createSignal.isPending}>
+              {createSignal.isPending ? 'Saving...' : 'Save to Inbox'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

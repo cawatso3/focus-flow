@@ -1,17 +1,19 @@
 import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, GripVertical, Calendar, Trash2 } from 'lucide-react';
+import { Plus, GripVertical, Calendar, Trash2, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { getTasks, createTask, updateTask, deleteTask } from '@/lib/store';
+import { useTasks, useCreateTask, useUpdateTask, useDeleteTask, useUpdateProject } from '@/hooks/use-queries';
 import type { TaskStatus, TaskPriority } from '@/lib/types';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const COLUMNS: { id: TaskStatus; label: string }[] = [
   { id: 'todo', label: 'To Do' },
@@ -35,59 +37,81 @@ export default function ExecuteStage() {
   const [newPhase, setNewPhase] = useState('');
   const [newPriority, setNewPriority] = useState<TaskPriority>('medium');
   const [newDue, setNewDue] = useState('');
-  const [, setRefresh] = useState(0);
+
+  const { data: tasks = [], isLoading } = useTasks(id);
+  const createTask = useCreateTask();
+  const updateTask = useUpdateTask();
+  const deleteTask = useDeleteTask();
+  const updateProject = useUpdateProject();
 
   const onDragEnd = useCallback((result: DropResult) => {
     if (!result.destination) return;
     const newStatus = result.destination.droppableId as TaskStatus;
-    updateTask(result.draggableId, { status: newStatus });
-    setRefresh(r => r + 1);
-  }, []);
+    updateTask.mutate({ id: result.draggableId, updates: { status: newStatus } });
+  }, [updateTask]);
 
   if (!id) return null;
 
-  const tasks = id ? getTasks(id) : [];
   const done = tasks.filter(t => t.status === 'done').length;
+  const allDone = tasks.length > 0 && done === tasks.length;
+  const progressPercent = tasks.length > 0 ? (done / tasks.length) * 100 : 0;
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!newTitle.trim() || !id) return;
-    createTask({
-      project_id: id,
-      title: newTitle.trim(),
-      description: newDesc || undefined,
-      phase: newPhase || undefined,
-      priority: newPriority,
-      due_date: newDue || undefined,
-    });
-    toast.success('Task created!');
-    setAddOpen(false);
-    setNewTitle('');
-    setNewDesc('');
-    setNewPhase('');
-    setNewPriority('medium');
-    setNewDue('');
-    setRefresh(r => r + 1);
+    try {
+      await createTask.mutateAsync({
+        project_id: id,
+        title: newTitle.trim(),
+        description: newDesc || undefined,
+        phase: newPhase || undefined,
+        priority: newPriority,
+        due_date: newDue || undefined,
+      });
+      toast.success('Task created!');
+      setAddOpen(false);
+      setNewTitle('');
+      setNewDesc('');
+      setNewPhase('');
+      setNewPriority('medium');
+      setNewDue('');
+    } catch {
+      toast.error('Failed to create task');
+    }
   };
 
-  if (!id) return null;
+  const handleMarkComplete = () => {
+    updateProject.mutate({ id, updates: { status: 'completed' } });
+    toast.success('🎉 Project completed!');
+  };
+
+  if (isLoading) {
+    return <div className="grid grid-cols-4 gap-3">{[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-48 w-full" />)}</div>;
+  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-1">
           <span className="text-sm text-muted-foreground">
             {done} of {tasks.length} tasks complete
           </span>
           {tasks.length > 0 && (
-            <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-stage-execute" style={{ width: `${tasks.length > 0 ? (done / tasks.length) * 100 : 0}%` }} />
-            </div>
+            <Progress value={progressPercent} className="w-32 h-1.5" />
           )}
         </div>
         <Button size="sm" onClick={() => setAddOpen(true)} className="gap-1">
           <Plus className="h-4 w-4" /> Add Task
         </Button>
       </div>
+
+      {allDone && (
+        <div className="mb-6 card-surface p-6 text-center border-l-4 border-stage-execute">
+          <Trophy className="h-8 w-8 stage-execute mx-auto mb-2" />
+          <h3 className="text-base font-semibold text-foreground mb-1">All tasks complete! 🎉</h3>
+          <p className="text-sm text-muted-foreground mb-4">You've shipped it. Mark this project as complete?</p>
+          <Button onClick={handleMarkComplete} className="gap-1">Mark Project Complete</Button>
+        </div>
+      )}
 
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="grid grid-cols-4 gap-3">
@@ -133,7 +157,7 @@ export default function ExecuteStage() {
                                   </div>
                                 </div>
                                 <button
-                                  onClick={() => { deleteTask(task.id); setRefresh(r => r + 1); }}
+                                  onClick={() => deleteTask.mutate(task.id)}
                                   className="text-muted-foreground hover:text-destructive"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -153,7 +177,6 @@ export default function ExecuteStage() {
         </div>
       </DragDropContext>
 
-      {/* Add Task Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -190,7 +213,9 @@ export default function ExecuteStage() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleAdd} disabled={!newTitle.trim()}>Add Task</Button>
+            <Button onClick={handleAdd} disabled={!newTitle.trim() || createTask.isPending}>
+              {createTask.isPending ? 'Adding...' : 'Add Task'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
