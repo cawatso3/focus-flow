@@ -23,8 +23,9 @@ export default function SignupPage() {
       await signup(email, password, name || undefined);
       toast.success('Account created!');
       navigate('/onboarding');
-    } catch {
-      toast.error('Signup failed');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Signup failed';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
