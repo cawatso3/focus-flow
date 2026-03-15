@@ -1,72 +1,65 @@
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
-import type { Profile } from '@/lib/types';
-import * as store from '@/lib/store';
+import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
-  user: { id: string; profile: Profile } | null;
+  user: User | null;
+  session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name?: string) => Promise<void>;
-  logout: () => void;
-  updateProfile: (updates: Partial<Profile>) => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<{ id: string; profile: Profile } | null>(() => {
-    const saved = localStorage.getItem('nc_auth');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // Re-hydrate the store
-        store.simulateLogin(parsed.email || 'user@example.com');
-        const current = store.getCurrentUser();
-        if (current && current.profile) {
-          return { id: current.id, profile: { ...current.profile, ...parsed.profile } };
-        }
-      } catch { /* ignore */ }
-    }
-    return null;
-  });
-  const [isLoading] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = useCallback(async (email: string, _password: string) => {
-    const result = store.simulateLogin(email);
-    const userData = { id: result.userId, profile: result.profile };
-    setUser(userData);
-    localStorage.setItem('nc_auth', JSON.stringify({ email, profile: result.profile }));
+  useEffect(() => {
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    });
+
+    // THEN get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const signup = useCallback(async (email: string, _password: string, name?: string) => {
-    const result = store.simulateSignup(email, name);
-    const userData = { id: result.userId, profile: result.profile };
-    setUser(userData);
-    localStorage.setItem('nc_auth', JSON.stringify({ email, profile: result.profile }));
+  const login = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
   }, []);
 
-  const logoutFn = useCallback(() => {
-    store.logout();
-    setUser(null);
-    localStorage.removeItem('nc_auth');
+  const signup = useCallback(async (email: string, password: string, name?: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: name },
+        emailRedirectTo: window.location.origin,
+      },
+    });
+    if (error) throw error;
   }, []);
 
-  const updateProfileFn = useCallback((updates: Partial<Profile>) => {
-    const updated = store.updateProfile(updates);
-    if (updated && user) {
-      const newUser = { ...user, profile: updated };
-      setUser(newUser);
-      const saved = localStorage.getItem('nc_auth');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        localStorage.setItem('nc_auth', JSON.stringify({ ...parsed, profile: updated }));
-      }
-    }
-  }, [user]);
+  const logoutFn = useCallback(async () => {
+    await supabase.auth.signOut();
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, signup, logout: logoutFn, updateProfile: updateProfileFn }}>
+    <AuthContext.Provider value={{ user, session, isAuthenticated: !!session, isLoading, login, signup, logout: logoutFn }}>
       {children}
     </AuthContext.Provider>
   );
